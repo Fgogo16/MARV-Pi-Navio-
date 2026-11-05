@@ -12,7 +12,7 @@
 #   pip install pupil-apriltags --break-system-packages
 #
 # Run on the Pi:      python3 apriltag_stream.py
-# Watch on laptop:    http://<Pi IP>:5000   (check the IP with: hostname -I)
+# Watch on laptop:    http://192.168.137.140:5000   (check the IP with: hostname -I)
 # Stop:               Ctrl+C in the Pi terminal
 # Only one program can use the camera at a time.
 # ============================================================
@@ -41,9 +41,7 @@ JPEG_QUALITY = 70      # 0-100; only affects the browser view, NOT detection
 
 # ---------- CAMERA SETUP (runs ONCE, before any loop) ----------
 picam2 = Picamera2()
-config = picam2.create_preview_configuration(
-    main={"size": (FRAME_WIDTH, FRAME_HEIGHT),
-          "format": "RGB888"})                    # 3 colors x 8 bits, in the
+config = picam2.create_preview_configuration()                
                                                   # byte order OpenCV expects (BGR)
 picam2.configure(config)
 picam2.start()

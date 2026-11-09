@@ -43,15 +43,14 @@ JPEG_QUALITY = 70      # 0-100; only affects the browser view, NOT detection
 # ---------- CAMERA SETUP ----------
 picam2 = Picamera2()
 
-# Explicitly configure resolution and pixel format
 config = picam2.create_video_configuration(
     main={
-        "size": (FRAME_WIDTH, FRAME_HEIGHT),
-        "format": "RGB888"
+        "size": (1536, 864), 
+        "format": "YUV420"
     },
+    raw=None,
     buffer_count=4
 )
-
 # Print configuration for debugging
 print("Camera configuration:")
 print(config)

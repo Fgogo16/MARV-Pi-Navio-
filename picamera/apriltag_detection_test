@@ -13,7 +13,7 @@ picam2 = Picamera2()
 
 config = picam2.create_video_configuration(
     main={
-        "size": (1536, 864),
+        "size": (1536, 864), 
         "format": "YUV420"
     },
     raw=None,
@@ -42,9 +42,9 @@ try:
     print("Number of tags:", len(detections))
 
     for tag in detections:
-        print("Tag ID:", tag.tag_id)
-        print("Center:", tag.center)
-        print("Corners:\n", tag.corners)
+        print("Tag ID:", tag.tag_id) # Assigned id
+        print("Center:", tag.center) # Center of detected quadirlateral
+        print("Corners:\n", tag.corners) # Corners of detected quadirlateral
 
 finally:
     if picam2.started:

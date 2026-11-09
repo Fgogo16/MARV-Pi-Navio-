@@ -1,21 +1,39 @@
 from picamera2 import Picamera2
 import time
 
+# Initialize camera
 picam2 = Picamera2()
 
-config = picam2.create_still_configuration(raw=None)
+# Configure camera
+config = picam2.create_video_configuration(
+    main={
+        "size": (1536, 864),
+        "format": "YUV420"
+    },
+    raw=None,
+    buffer_count=4
+)
 
-print("Configuration:", config)
+try:
+    # Apply configuration
+    picam2.configure(config)
+    print("Camera configured")
 
-picam2.configure(config)
-print("Configuration successful")
+    # Begin acquisition
+    picam2.start()
+    print("Camera started")
 
-picam2.start()
-time.sleep(2)
+    # Allow camera to stabilize
+    time.sleep(2)
 
-picam2.capture_file("picamera2-default-test.jpg")
+    # Capture image
+    picam2.capture_file("camera_test_high_res.jpg")
+    print("Image captured")
 
-picam2.stop()
-picam2.close()
+finally:
+    # Release camera resources
+    if picam2.started:
+        picam2.stop()
 
-print("Capture successful")
+    picam2.close()
+    print("Camera closed")

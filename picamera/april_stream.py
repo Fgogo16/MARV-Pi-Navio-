@@ -40,12 +40,26 @@ JPEG_QUALITY = 70      # 0-100; only affects the browser view, NOT detection
 
 
 # ---------- CAMERA SETUP (runs ONCE, before any loop) ----------
+# ---------- CAMERA SETUP ----------
 picam2 = Picamera2()
-config = picam2.create_preview_configuration()                
-                                                  # byte order OpenCV expects (BGR)
+
+# Explicitly configure resolution and pixel format
+config = picam2.create_video_configuration(
+    main={
+        "size": (FRAME_WIDTH, FRAME_HEIGHT),
+        "format": "RGB888"
+    },
+    buffer_count=4
+)
+
+# Print configuration for debugging
+print("Camera configuration:")
+print(config)
+
 picam2.configure(config)
 picam2.start()
 
+print("Camera started successfully!")
 
 # ---------- DETECTOR SETUP (also ONCE) ----------
 detector = Detector(families=TAG_FAMILY,

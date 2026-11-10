@@ -1,0 +1,51 @@
+from picamera2 import Picamera2
+from pupil_apriltags import Detector 
+import numpy as np 
+import time 
+
+# Initialize april tag detector 
+detector= Detector(
+    families = "tag25h9"
+)
+
+# Initialize camera
+picam2 = Picamera2()
+config = picam2.create_video_configuration( 
+    main={
+        "size": (1536, 864), 
+        "format": "YUV420" # One luma: Brigthness info; two chroma: color info  
+    },
+    raw=None, 
+    buffer_count=4 # Number of frames that can be stored 
+)
+
+try:
+    # Start camera
+    picam2.configure(config)
+    picam2.start()
+
+    time.sleep(2)  # Wait for camera to warm up
+
+    while True:
+        # Capture frame
+        frame = picam2.capture_array()
+
+        gray = frame[:864, :]  # Extract grayscale image (luma channel)
+        gray = np.ascontiguousarray(gray)  # Ensure contiguous memory for detector
+
+        # Detect Apriltags
+        detections = detector.detect(gray)
+
+        print("Number of tags:", len(detections))
+
+        for tag in detections:
+            print("Tag ID:", tag.tag_id)  # Assigned ID
+            print("Center:", tag.center)  # Center of detected quadrilateral
+            print("Corners:\n", tag.corners)  # Corners of detected quadrilateral
+
+        time.sleep(0.05)  # Small time gap for loop
+
+finally:
+    if picam2.started:
+        picam2.stop()
+    picam2.close()

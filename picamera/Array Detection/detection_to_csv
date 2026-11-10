@@ -1,0 +1,237 @@
+
+from picamera2 import Picamera2
+from pupil_apriltags import Detector
+
+import numpy as np
+import time
+import csv
+
+#Inputs
+
+WIDTH = 1536
+HEIGHT = 864
+
+TARGET_FPS = 30
+
+NUM_FRAMES = 500
+
+# CHANGE NAME
+CSV_FILENAME = "864pXXft.csv"
+
+# Set to None to detect any AprilTag.
+# Set to an integer to detect only a particular ID.
+TARGET_TAG_ID = None
+
+# Initialize AprilTag detector
+
+detector = Detector(
+    families="tag36h11"
+
+    # Section below commented out to isolate effect of resolution
+    """ 
+    nthreads=4,
+    quad_decimate=2.0,
+    quad_sigma=0.0,
+    refine_edges=1,
+    decode_sharpening=0.25,
+    debug=0
+    """
+)
+
+
+# Initialize camera 
+
+picam2 = Picamera2()
+
+config = picam2.create_video_configuration(
+    main={
+        "size": (WIDTH, HEIGHT),
+        "format": "YUV420"
+    },
+    raw=None,
+    controls={
+        "FrameDurationLimits": (
+            int(1000000 / TARGET_FPS), # Convert to frame duration limits
+            int(1000000 / TARGET_FPS)
+        )
+    },
+    buffer_count=4
+)
+
+
+# ==========================================
+# STORAGE
+# ==========================================
+
+results = []
+
+frame_count = 0
+successful_detections = 0
+
+start_time = None
+
+
+# ==========================================
+# CAMERA EXECUTION
+# ==========================================
+
+try:
+
+    picam2.configure(config)
+    picam2.start()
+
+    time.sleep(2)
+
+    start_time = time.perf_counter()
+
+    while frame_count < NUM_FRAMES:
+
+        # ------------------------------
+        # Capture frame
+        # ------------------------------
+
+        frame_start = time.perf_counter()
+
+        frame = picam2.capture_array()
+
+        # Extract Y channel (grayscale)
+        gray = frame[:HEIGHT, :]
+
+        gray = np.ascontiguousarray(gray)
+
+        # ------------------------------
+        # AprilTag detection
+        # ------------------------------
+
+        detection_start = time.perf_counter()
+
+        detections = detector.detect(gray)
+
+        detection_time = (
+            time.perf_counter() - detection_start
+        ) * 1000
+
+        # ------------------------------
+        # Assign binary detection value
+        # ------------------------------
+
+        if TARGET_TAG_ID is None:
+
+            detected = len(detections) > 0
+
+        else:
+
+            detected = any(
+                tag.tag_id == TARGET_TAG_ID
+                for tag in detections
+            )
+
+        detection_value = int(detected)
+
+        if detected:
+            successful_detections += 1
+
+        # ------------------------------
+        # Record detected IDs
+        # ------------------------------
+
+        detected_ids = [
+            tag.tag_id for tag in detections
+        ]
+
+        # ------------------------------
+        # Record frame information
+        # ------------------------------
+
+        frame_count += 1
+
+        elapsed_time = (
+            time.perf_counter() - start_time
+        )
+
+        frame_processing_time = (
+            time.perf_counter() - frame_start
+        ) * 1000
+
+        results.append([
+            frame_count,
+            round(elapsed_time, 6),
+            detection_value,
+            len(detections),
+            ";".join(map(str, detected_ids)),
+            round(detection_time, 3),
+            round(frame_processing_time, 3)
+        ])
+
+        # ------------------------------
+        # Console output
+        # ------------------------------
+
+        print(
+            f"Frame: {frame_count}/{NUM_FRAMES} | "
+            f"Detected: {detection_value} | "
+            f"Tags: {len(detections)} | "
+            f"Detection time: {detection_time:.2f} ms"
+        )
+
+
+finally:
+
+    if picam2.started:
+        picam2.stop()
+
+    picam2.close()
+
+
+# ==========================================
+# EXPORT CSV
+# ==========================================
+
+with open(
+    CSV_FILENAME,
+    mode="w",
+    newline=""
+) as file:
+
+    writer = csv.writer(file)
+
+    writer.writerow([
+        "Frame",
+        "Timestamp_s",
+        "Detection",
+        "Number_of_Tags",
+        "Tag_IDs",
+        "Detection_Time_ms",
+        "Processing_Time_ms"
+    ])
+
+    writer.writerows(results)
+
+
+# ==========================================
+# EXPERIMENT SUMMARY
+# ==========================================
+
+total_time = time.perf_counter() - start_time
+
+detection_rate = (
+    successful_detections / frame_count
+) * 100
+
+average_fps = frame_count / total_time
+
+print("\n========== EXPERIMENT RESULTS ==========")
+
+print("Frames captured:", frame_count)
+
+print("Successful detections:", successful_detections)
+
+print("Failed detections:", frame_count - successful_detections)
+
+print(f"Detection rate: {detection_rate:.2f}%")
+
+print(f"Average processing throughput: {average_fps:.2f} FPS")
+
+print("CSV saved as:", CSV_FILENAME)
+
+print("========================================")

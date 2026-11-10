@@ -5,13 +5,16 @@ import time
 
 # Initialize april tag detector 
 detector = Detector(
-    families="tag25h9",
+    families="tag36h11"
+
+    """
     nthreads=4,
     quad_decimate=2.0,
     quad_sigma=0.0,
     refine_edges=1,
     decode_sharpening=0.25,
     debug=0
+    """
 )
 
 # Initialize camera
@@ -23,7 +26,7 @@ config = picam2.create_video_configuration(
     },
     raw=None, 
     controls={
-         "FrameDurationLimits": (33333, 33333)
+         "FrameDurationLimits": (33333, 33333) # 30 fps
     },
     buffer_count=4 # Number of frames that can be stored 
 )

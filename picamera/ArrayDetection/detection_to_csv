@@ -1,0 +1,365 @@
+
+from picamera2 import Picamera2
+from pupil_apriltags import Detector
+
+import numpy as np
+import time
+import csv
+import psutil
+import os
+
+
+# ==========================================
+# USER CONFIGURATION
+# ==========================================
+
+WIDTH = 2304
+HEIGHT = 1296
+
+TARGET_FPS = 30
+NUM_FRAMES = 300
+
+CSV_FILENAME = "1296p6in.csv"
+
+
+# None = detect any tag
+# Integer = detect only the specified tag ID
+TARGET_TAG_ID = None
+
+
+# ==========================================
+# SYSTEM MONITORING
+# ==========================================
+
+process = psutil.Process(os.getpid())
+
+CPU_CORES = psutil.cpu_count(logical=True)
+
+
+def get_cpu_temperature():
+
+    try:
+        with open(
+            "/sys/class/thermal/thermal_zone0/temp",
+            "r"
+        ) as file:
+
+            temperature = float(file.read()) / 1000.0
+
+        return temperature
+
+    except (OSError, ValueError):
+        return float("nan")
+
+
+def get_cpu_time():
+
+    cpu_times = process.cpu_times()
+
+    return cpu_times.user + cpu_times.system
+
+
+# ==========================================
+# INITIALIZE APRILTAG DETECTOR
+# ==========================================
+
+detector = Detector(
+    families="tag36h11"
+    """
+    nthreads=4,
+    quad_decimate=2.0,
+    quad_sigma=0.0,
+    refine_edges=1,
+    decode_sharpening=0.25,
+    debug=0
+
+    """
+)
+
+
+# ==========================================
+# INITIALIZE CAMERA
+# ==========================================
+
+picam2 = Picamera2()
+
+config = picam2.create_video_configuration(
+    main={
+        "size": (WIDTH, HEIGHT),
+        "format": "YUV420"
+    },
+    raw=None,
+    controls={
+        "FrameDurationLimits": (
+            int(1000000 / TARGET_FPS),
+            int(1000000 / TARGET_FPS)
+        )
+    },
+    buffer_count=4
+)
+
+
+# ==========================================
+# EXPERIMENT STORAGE
+# ==========================================
+
+results = []
+
+frame_count = 0
+successful_detections = 0
+
+experiment_start = None
+
+
+# ==========================================
+# CAMERA EXECUTION
+# ==========================================
+
+try:
+
+    picam2.configure(config)
+    picam2.start()
+
+    print("Camera initialized.")
+    print("Warming up...")
+
+    time.sleep(2)
+
+    print("\nStarting experiment.")
+
+    experiment_start = time.perf_counter()
+
+    while frame_count < NUM_FRAMES:
+
+        # ------------------------------
+        # Start frame measurements
+        # ------------------------------
+
+        frame_start = time.perf_counter()
+        cpu_start = get_cpu_time()
+
+        # ------------------------------
+        # Capture image
+        # ------------------------------
+
+        frame = picam2.capture_array()
+
+        gray = frame[:HEIGHT, :]
+        gray = np.ascontiguousarray(gray)
+
+        # ------------------------------
+        # AprilTag detection
+        # ------------------------------
+
+        detection_start = time.perf_counter()
+        detector_cpu_start = get_cpu_time()
+
+        detections = detector.detect(gray)
+
+        detector_cpu_end = get_cpu_time()
+        detection_end = time.perf_counter()
+
+        detection_time_ms = (
+            detection_end - detection_start
+        ) * 1000
+
+        detection_cpu_ms = (
+            detector_cpu_end - detector_cpu_start
+        ) * 1000
+
+        # ------------------------------
+        # Binary detection result
+        # ------------------------------
+
+        if TARGET_TAG_ID is None:
+
+            detected = len(detections) > 0
+
+        else:
+
+            detected = any(
+                tag.tag_id == TARGET_TAG_ID
+                for tag in detections
+            )
+
+        detection_value = int(detected)
+
+        if detected:
+            successful_detections += 1
+
+        detected_ids = [
+            tag.tag_id for tag in detections
+        ]
+
+        # ------------------------------
+        # Computational measurements
+        # ------------------------------
+
+        frame_end = time.perf_counter()
+        cpu_end = get_cpu_time()
+
+        frame_time_s = frame_end - frame_start
+
+        cpu_time_ms = (
+            cpu_end - cpu_start
+        ) * 1000
+
+        # Process CPU utilization.
+        # Can exceed 100% when multiple cores are used.
+
+        if frame_time_s > 0:
+
+            cpu_utilization = (
+                (cpu_end - cpu_start) /
+                frame_time_s
+            ) * 100
+
+        else:
+            cpu_utilization = 0
+
+        # RAM usage
+
+        memory_mb = (
+            process.memory_info().rss /
+            (1024 * 1024)
+        )
+
+        # CPU temperature
+
+        cpu_temperature = get_cpu_temperature()
+
+        # ------------------------------
+        # Record results
+        # ------------------------------
+
+        frame_count += 1
+
+        timestamp = frame_end - experiment_start
+
+        results.append([
+            frame_count,
+            round(timestamp, 6),
+            detection_value,
+            len(detections),
+            ";".join(map(str, detected_ids)),
+            round(detection_time_ms, 3),
+            round(detection_cpu_ms, 3),
+            round(frame_time_s * 1000, 3),
+            round(cpu_time_ms, 3),
+            round(cpu_utilization, 2),
+            round(memory_mb, 2),
+            round(cpu_temperature, 2)
+        ])
+
+        # ------------------------------
+        # Console output
+        # ------------------------------
+
+        print(
+            f"Frame {frame_count}/{NUM_FRAMES} | "
+            f"Detection: {detection_value} | "
+            f"Detection time: {detection_time_ms:.2f} ms | "
+            f"CPU: {cpu_utilization:.1f}% | "
+            f"RAM: {memory_mb:.1f} MB | "
+            f"Temp: {cpu_temperature:.1f} C"
+        )
+
+
+finally:
+
+    if picam2.started:
+        picam2.stop()
+
+    picam2.close()
+
+
+# ==========================================
+# EXPORT CSV
+# ==========================================
+
+with open(
+    CSV_FILENAME,
+    mode="w",
+    newline=""
+) as file:
+
+    writer = csv.writer(file)
+
+    writer.writerow([
+        "Frame",
+        "Timestamp_s",
+        "Detection",
+        "Number_of_Tags",
+        "Tag_IDs",
+        "Detection_Time_ms",
+        "Detection_CPU_Time_ms",
+        "Frame_Time_ms",
+        "Process_CPU_Time_ms",
+        "Process_CPU_Utilization_pct",
+        "RAM_Usage_MB",
+        "CPU_Temperature_C"
+    ])
+
+    writer.writerows(results)
+
+
+# ==========================================
+# EXPERIMENT SUMMARY
+# ==========================================
+
+total_time = time.perf_counter() - experiment_start
+
+detection_rate = (
+    successful_detections / frame_count
+) * 100
+
+average_fps = frame_count / total_time
+
+cpu_values = [row[9] for row in results]
+ram_values = [row[10] for row in results]
+temperature_values = [
+    row[11] for row in results
+    if np.isfinite(row[11])
+]
+
+print("\n========== EXPERIMENT SUMMARY ==========")
+
+print("Resolution:", WIDTH, "x", HEIGHT)
+print("Target FPS:", TARGET_FPS)
+print("Frames processed:", frame_count)
+
+print(f"Detection rate: {detection_rate:.2f}%")
+print(f"Average throughput: {average_fps:.2f} FPS")
+
+print(
+    f"Average process CPU utilization: "
+    f"{np.mean(cpu_values):.2f}%"
+)
+
+print(
+    f"Maximum process CPU utilization: "
+    f"{np.max(cpu_values):.2f}%"
+)
+
+print(
+    f"Average RAM usage: "
+    f"{np.mean(ram_values):.2f} MB"
+)
+
+print(
+    f"Maximum RAM usage: "
+    f"{np.max(ram_values):.2f} MB"
+)
+
+if temperature_values:
+
+    print(
+        f"Maximum CPU temperature: "
+        f"{np.max(temperature_values):.2f} C"
+    )
+
+print("CPU logical cores:", CPU_CORES)
+
+print("CSV file:", CSV_FILENAME)
+
+print("========================================")
